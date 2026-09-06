@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkers</title>
+  <style>
+    :root { --ink:#f3eadb; --muted:#cbbda8; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background: radial-gradient(ellipse at top, #3a2a1c 0%, #14100c 58%, #0b0907 100%);
+    }
+    .wrap { width: min(94vw, 560px); padding: 18px 16px 22px; }
+    h1 {
+      margin: 0 0 4px;
+      text-align: center;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: 22px;
+    }
+    .subtitle { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .panel {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px;
+    }
+    .score { display: flex; gap: 14px; font-size: 14px; }
+    .chip { display: flex; align-items: center; gap: 7px; }
+    .mini { width: 13px; height: 13px; border-radius: 50%; }
+    .mini.d { background: radial-gradient(circle at 30% 30%, #6b4a32, #1a100b); }
+    .mini.l { background: radial-gradient(circle at 30% 30%, #f3d7b0, #c48a48); }
+    #status { font-size: 13px; }
+    .board-frame {
+      padding: 14px;
+      border-radius: 16px;
+      background: linear-gradient(160deg, #7a5530, #3d2816 50%, #2a1b0e);
+      box-shadow: 0 18px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.18);
+    }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+    .cell { position: relative; }
+    .cell.light { background: #e7d3b0; }
+    .cell.dark { background: #6b3f24; }
+    .cell.valid { cursor: pointer; }
+    .cell.valid:after {
+      content: "";
+      position: absolute;
+      inset: 38%;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.7);
+    }
+    .cell.selected { box-shadow: inset 0 0 0 3px #f3e2b0; }
+    .piece {
+      position: absolute;
+      inset: 12%;
+      border-radius: 50%;
+    }
+    .piece.dark {
+      background: radial-gradient(circle at 32% 28%, #7a5340, #2a1810 55%, #120b07);
+      box-shadow: inset 0 -5px 8px rgba(0,0,0,.5), 0 4px 6px rgba(0,0,0,.35);
+    }
+    .piece.light {
+      background: radial-gradient(circle at 32% 28%, #ffe4bc, #e2b36a 48%, #a56b2d);
+      box-shadow: inset 0 -5px 8px rgba(0,0,0,.2), 0 4px 6px rgba(0,0,0,.28);
+    }
+    .piece.king:before {
+      content: "♔";
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: rgba(255,236,180,.92);
+      text-shadow: 0 1px 2px rgba(0,0,0,.5);
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 14px;
+    }
+    button, select {
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font: 13px/1.2 Georgia, serif;
+      cursor: pointer;
+    }
+    button {
+      background: linear-gradient(#c7924a, #8a5a22);
+      color: #fff;
+      box-shadow: 0 3px 0 #5a3914;
+    }
+    button:hover { filter: brightness(1.06); }
+    button:disabled { opacity: .45; cursor: default; filter: none; }
+    select { background: #2a1d12; color: var(--ink); border: 1px solid rgba(255,255,255,.12); }
+    #msg { min-height: 1.2em; margin-top: 10px; text-align: center; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Checkers</h1>
+    <div class="subtitle">You are Dark · computer is Light</div>
+    <div class="panel">
+      <div class="score">
+        <span class="chip"><span class="mini d"></span> Dark <strong id="ds">12</strong></span>
+        <span class="chip"><span class="mini l"></span> Light <strong id="ls">12</strong></span>
+      </div>
+      <div id="status">Dark to move</div>
+    </div>
+    <div class="board-frame"><div id="board"></div></div>
+    <div class="controls">
+      <select id="level">
+        <option value="easy">Level: Easy</option>
+        <option value="medium" selected>Level: Medium</option>
+        <option value="hard">Level: Hard</option>
+      </select>
+      <button type="button" id="undo">Undo</button>
+      <button type="button" id="share" disabled>Share</button>
+      <button type="button" id="restart">Restart</button>
+    </div>
+    <div id="msg">Select a dark piece, then a highlighted square. Jumps are forced.</div>
+  </div>
+
+  <script>
+    (function () {
+      var N = 8, DARK = 1, LIGHT = 2, DKING = 3, LKING = 4;
+      var board, current, gameOver, cells, history, selected, chainFrom, busy;
+
+      var elBoard = document.getElementById("board");
+      var elDS = document.getElementById("ds");
+      var elLS = document.getElementById("ls");
+      var elStatus = document.getElementById("status");
+      var elMsg = document.getElementById("msg");
+      var elUndo = document.getElementById("undo");
+      var elShare = document.getElementById("share");
+      var elLevel = document.getElementById("level");
+
+      function isDark(p) { return p === DARK || p === DKING; }
+      function isLight(p) { return p === LIGHT || p === LKING; }
+      function isKing(p) { return p === DKING || p === LKING; }
+      function owner(p) { return isDark(p) ? DARK : isLight(p) ? LIGHT : 0; }
+      function playable(r, c) { return (r + c) % 2 === 1; }
+      function inb(r, c) { return r >= 0 && r < N && c >= 0 && c < N; }
+
+      function emptyBoard() {
+        var b = [], r, c;
+        for (r = 0; r < N; r++) {
+          b[r] = [];
+          for (c = 0; c < N; c++) {
+            b[r][c] = 0;
+            if (!playable(r, c)) continue;
+            if (r < 3) b[r][c] = LIGHT;
+            if (r > 4) b[r][c] = DARK;
+          }
+        }
+        return b;
+      }
+
+      function copyBoard(b) {
+        var n = [], r;
+        for (r = 0; r < N; r++) n[r] = b[r].slice();
+        return n;
+      }
+
+      function dirsFor(p) {
+        if (p === DARK) return [[-1,-1],[-1,1]];
+        if (p === LIGHT) return [[1,-1],[1,1]];
+        return [[-1,-1],[-1,1],[1,-1],[1,1]];
+      }
+
+      function maybeKing(p, r) {
+        if (p === DARK && r === 0) return DKING;
+        if (p === LIGHT && r === 7) return LKING;
+        return p;
+      }
+
+      function stepMoves(b, r, c) {
+        var p = b[r][c], out = [], i, dr, dc, nr, nc, dirs = dirsFor(p);
+        for (i = 0; i < dirs.length; i++) {
+          dr = dirs[i][0]; dc = dirs[i][1];
+          nr = r + dr; nc = c + dc;
+          if (inb(nr, nc) && b[nr][nc] === 0) out.push({ r: nr, c: nc, jump: false });
+        }
+        return out;
+      }
+
+      function jumpMoves(b, r, c) {
+        var p = b[r][c], out = [], i, dr, dc, mr, mc, nr, nc, mid, dirs = dirsFor(p);
+        for (i = 0; i < dirs.length; i++) {
+          dr = dirs[i][0]; dc = dirs[i][1];
+          mr = r + dr; mc = c + dc;
+          nr = r + 2 * dr; nc = c + 2 * dc;
+          if (!inb(nr, nc) || b[nr][nc] !== 0) continue;
+          mid = b[mr][mc];
+          if (!mid || owner(mid) === owner(p)) continue;
+          out.push({ r: nr, c: nc, jump: true, capR: mr, capC: mc });
+        }
+        return out;
+      }
+
+      function anyJump(b, side) {
+        var r, c, p;
+        for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+          p = b[r][c];
+          if (owner(p) !== side) continue;
+          if (jumpMoves(b, r, c).length) return true;
+        }
+        return false;
+      }
+
+      function applyStep(b, fr, fc, step) {
+        var next = copyBoard(b);
+        var p = next[fr][fc];
+        next[fr][fc] = 0;
+        if (step.jump) next[step.capR][step.capC] = 0;
+        next[step.r][step.c] = maybeKing(p, step.r);
+        return next;
+      }
+
+      function collectJumpSeq(b, r, c, acc, out) {
+        var jumps = jumpMoves(b, r, c), i, nb;
+        if (!jumps.length) {
+          if (acc.length) out.push(acc.slice());
+          return;
+        }
+        for (i = 0; i < jumps.length; i++) {
+          nb = applyStep(b, r, c, jumps[i]);
+          acc.push(jumps[i]);
+          collectJumpSeq(nb, jumps[i].r, jumps[i].c, acc, out);
+          acc.pop();
+        }
+      }
+
+      function allMoves(b, side) {
+        var moves = [], r, c, p, steps, seqs, i;
+        var force = anyJump(b, side);
+        for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+          p = b[r][c];
+          if (owner(p) !== side) continue;
+          if (force) {
+            seqs = [];
+            collectJumpSeq(b, r, c, [], seqs);
+            for (i = 0; i < seqs.length; i++) moves.push({ r: r, c: c, seq: seqs[i] });
+          } else {
+            steps = stepMoves(b, r, c);
+            for (i = 0; i < steps.length; i++) moves.push({ r: r, c: c, seq: [steps[i]] });
+          }
+        }
+        return moves;
+      }
+
+      function applyMove(b, move) {
+        var next = copyBoard(b), fr = move.r, fc = move.c, i, s;
+        for (i = 0; i < move.seq.length; i++) {
+          s = move.seq[i];
+          next = applyStep(next, fr, fc, s);
+          fr = s.r; fc = s.c;
+        }
+        return next;
+      }
+
+      function counts(b) {
+        var d = 0, l = 0, r, c;
+        for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+          if (isDark(b[r][c])) d++;
+          if (isLight(b[r][c])) l++;
+        }
+        return { d: d, l: l };
+      }
+
+      function evaluate(b) {
+        var score = 0, r, c, p;
+        for (r = 0; r < N; r++) for (c = 0; c < N; c++) {
+          p = b[r][c];
+          if (p === DARK) score -= 10 + (7 - r);
+          else if (p === DKING) score -= 18;
+          else if (p === LIGHT) score += 10 + r;
+          else if (p === LKING) score += 18;
+        }
+        score += allMoves(b, LIGHT).length - allMoves(b, DARK).length;
+        return score;
+      }
+
+      function pickEasy(moves) {
+        return moves[Math.floor(Math.random() * moves.length)];
+      }
+
+      function pickMedium(moves) {
+        moves = moves.slice().sort(function (a, b) {
+          var aj = a.seq[0].jump ? a.seq.length : 0;
+          var bj = b.seq[0].jump ? b.seq.length : 0;
+          return bj - aj;
+        });
+        return moves[0];
+      }
+
+      function pickHard(b, moves) {
+        var best = moves[0], bestScore = -99999, i, next, reply, worst, j, after, val;
+        for (i = 0; i < moves.length; i++) {
+          next = applyMove(b, moves[i]);
+          if (!counts(next).d || !allMoves(next, DARK).length) return moves[i];
+          reply = allMoves(next, DARK);
+          worst = 99999;
+          if (!reply.length) worst = evaluate(next);
+          for (j = 0; j < reply.length; j++) {
+            after = applyMove(next, reply[j]);
+            val = evaluate(after);
+            if (val < worst) worst = val;
+          }
+          if (worst > bestScore) { bestScore = worst; best = moves[i]; }
+        }
+        return best;
+      }
+
+      function chooseAI(b) {
+        var moves = allMoves(b, LIGHT);
+        if (!moves.length) return null;
+        var level = elLevel.value;
+        if (level === "easy") return pickEasy(moves);
+        if (level === "hard") return pickHard(b, moves);
+        return pickMedium(moves);
+      }
+
+      function todayStamp() {
+        var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
+        return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+      }
+
+      function levelLabel() {
+        var v = elLevel.value;
+        return v.charAt(0).toUpperCase() + v.slice(1);
+      }
+
+      function resultText() {
+        var sc = counts(board);
+        var darkMoves = allMoves(board, DARK).length;
+        var lightMoves = allMoves(board, LIGHT).length;
+        var outcome = "Draw";
+        if (!sc.l || !lightMoves) outcome = "Dark won";
+        else if (!sc.d || !darkMoves) outcome = "Light won";
+        var grid = [], r, c, row, p;
+        for (r = 0; r < N; r++) {
+          row = "";
+          for (c = 0; c < N; c++) {
+            p = board[r][c];
+            if (!playable(r, c)) row += "⬜";
+            else if (p === DARK) row += "⚫";
+            else if (p === DKING) row += "⬛";
+            else if (p === LIGHT) row += "🟡";
+            else if (p === LKING) row += "🟧";
+            else row += "🟫";
+          }
+          grid.push(row);
+        }
+        return ["Checkers " + todayStamp(), levelLabel() + " · " + outcome, "Dark " + sc.d + " – " + sc.l + " Light", "", grid.join("\n")].join("\n");
+      }
+
+      function snapshot() {
+        history.push({
+          board: copyBoard(board),
+          current: current,
+          gameOver: gameOver,
+          msg: elMsg.innerHTML
+        });
+        elUndo.disabled = history.length === 0;
+      }
+
+      function targetsFrom(r, c) {
+        var force = anyJump(board, current) || !!chainFrom;
+        return force ? jumpMoves(board, r, c) : stepMoves(board, r, c);
+      }
+
+      function render() {
+        var tmap = {};
+        if (selected) {
+          var t = targetsFrom(selected.r, selected.c), i;
+          for (i = 0; i < t.length; i++) tmap[t[i].r + "," + t[i].c] = true;
+        }
+        for (var r = 0; r < N; r++) {
+          for (var c = 0; c < N; c++) {
+            var cell = cells[r][c];
+            var cls = "cell " + (playable(r, c) ? "dark" : "light");
+            if (selected && selected.r === r && selected.c === c) cls += " selected";
+            if (tmap[r + "," + c]) cls += " valid";
+            cell.className = cls;
+            var v = board[r][c];
+            var existing = cell.querySelector(".piece");
+            if (!v) {
+              if (existing) cell.removeChild(existing);
+              continue;
+            }
+            var color = isDark(v) ? "dark" : "light";
+            var king = isKing(v) ? " king" : "";
+            var want = color + "|" + (isKing(v) ? "1" : "0");
+            if (!existing || existing.getAttribute("data-state") !== want) {
+              if (existing) cell.removeChild(existing);
+              var d = document.createElement("div");
+              d.className = "piece " + color + king;
+              d.setAttribute("data-state", want);
+              cell.appendChild(d);
+            }
+          }
+        }
+        var sc = counts(board);
+        elDS.innerHTML = sc.d;
+        elLS.innerHTML = sc.l;
+        elUndo.disabled = history.length === 0 || busy;
+        elShare.disabled = !gameOver;
+      }
+
+      function setStatus() {
+        if (gameOver) {
+          var sc = counts(board);
+          var darkMoves = allMoves(board, DARK).length;
+          var lightMoves = allMoves(board, LIGHT).length;
+          if (!sc.l || !lightMoves) elStatus.innerHTML = "Dark wins";
+          else if (!sc.d || !darkMoves) elStatus.innerHTML = "Light wins";
+          else elStatus.innerHTML = "Draw";
+        } else {
+          elStatus.innerHTML = current === DARK ? "Dark to move" : "Light thinking...";
+        }
+      }
+
+      function finishIfNeeded() {
+        var sc = counts(board);
+        var moves = allMoves(board, current);
+        if (!sc.d || !sc.l || !moves.length) {
+          gameOver = true;
+          selected = null;
+          chainFrom = null;
+          elMsg.innerHTML = "Game over — tap Share for a result card";
+          setStatus();
+          render();
+          return true;
+        }
+        return false;
+      }
+
+      function afterDarkTurn() {
+        selected = null;
+        chainFrom = null;
+        current = LIGHT;
+        setStatus();
+        render();
+        if (finishIfNeeded()) return;
+        busy = true;
+        elUndo.disabled = true;
+        setTimeout(aiMove, 320);
+      }
+
+      function clickCell(r, c) {
+        if (gameOver || current !== DARK || busy) return;
+
+        if (selected) {
+          var opts = targetsFrom(selected.r, selected.c), i, hit = null;
+          for (i = 0; i < opts.length; i++) if (opts[i].r === r && opts[i].c === c) hit = opts[i];
+          if (hit) {
+            if (!chainFrom) snapshot();
+            board = applyStep(board, selected.r, selected.c, hit);
+            if (hit.jump && jumpMoves(board, hit.r, hit.c).length) {
+              selected = { r: hit.r, c: hit.c };
+              chainFrom = selected;
+              elMsg.innerHTML = "Continue the jump.";
+              render();
+              return;
+            }
+            elMsg.innerHTML = "";
+            afterDarkTurn();
+            return;
+          }
+        }
+
+        if (chainFrom) return;
+        if (owner(board[r][c]) !== DARK) {
+          selected = null;
+          render();
+          return;
+        }
+        var force = anyJump(board, DARK);
+        if (force && !jumpMoves(board, r, c).length) {
+          elMsg.innerHTML = "A jump is available — you must take it.";
+          selected = null;
+          render();
+          return;
+        }
+        selected = { r: r, c: c };
+        elMsg.innerHTML = "";
+        render();
+      }
+
+      function aiMove() {
+        if (gameOver || current !== LIGHT) { busy = false; return; }
+        var pick = chooseAI(board);
+        busy = false;
+        if (!pick) { finishIfNeeded(); return; }
+        board = applyMove(board, pick);
+        current = DARK;
+        setStatus();
+        render();
+        if (finishIfNeeded()) return;
+        elMsg.innerHTML = "";
+      }
+
+      function undo() {
+        if (!history.length || busy) return;
+        var prev = history.pop();
+        board = copyBoard(prev.board);
+        current = prev.current;
+        gameOver = prev.gameOver;
+        selected = null;
+        chainFrom = null;
+        elMsg.innerHTML = prev.msg;
+        setStatus();
+        render();
+      }
+
+      function shareResult() {
+        if (!gameOver) return;
+        var text = resultText();
+        if (navigator.share) navigator.share({ title: "Checkers", text: text }).catch(function () { copyText(text); });
+        else copyText(text);
+      }
+
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            elMsg.innerHTML = "Result copied — paste it anywhere";
+          }).catch(function () { fallbackCopy(text); });
+        } else fallbackCopy(text);
+      }
+
+      function fallbackCopy(text) {
+        var area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand("copy"); elMsg.innerHTML = "Result copied — paste it anywhere"; }
+        catch (e) { alert(text); }
+        document.body.removeChild(area);
+      }
+
+      function buildGrid() {
+        elBoard.innerHTML = "";
+        cells = [];
+        for (var r = 0; r < N; r++) {
+          cells[r] = [];
+          for (var c = 0; c < N; c++) {
+            (function (rr, cc) {
+              var cell = document.createElement("div");
+              cell.onclick = function () { clickCell(rr, cc); };
+              elBoard.appendChild(cell);
+              cells[rr][cc] = cell;
+            })(r, c);
+          }
+        }
+      }
+
+      function start() {
+        board = emptyBoard();
+        current = DARK;
+        gameOver = false;
+        history = [];
+        selected = null;
+        chainFrom = null;
+        busy = false;
+        elMsg.innerHTML = "Select a dark piece, then a highlighted square. Jumps are forced.";
+        buildGrid();
+        setStatus();
+        render();
+      }
+
+      document.getElementById("restart").onclick = start;
+      elUndo.onclick = undo;
+      elShare.onclick = shareResult;
+      start();
+    })();
+  </script>
+</body>
+</html>
